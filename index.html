@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GreenCorridor — Ambulance Signal Priority Sim</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0A0D12; --panel: #12161D; --panel-2: #171C24;
+    --border: #232A35; --border-soft: #1B212B;
+    --text: #E7ECF2; --text-muted: #8A93A3; --text-dim: #545D6C;
+    --amb-1: #4C8DFF; --amb-2: #C46BFF;
+    --sig-red: #E5484D; --sig-amber: #F0A83B; --sig-green: #27C281; --sig-idle: #3A4250;
+    --fault: #FF4D6D;
+    --radius: 10px;
+  }
+  :root:not([data-theme="light"]) { color-scheme: dark; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme: dark; } }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+    -webkit-font-smoothing: antialiased; display: flex; flex-direction: column;
+  }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace; }
+
+  .topbar { display: flex; align-items: center; gap: 16px; padding: 12px 20px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, #0D1118, #0A0D12); flex-wrap: wrap; }
+  .brand { display: flex; align-items: baseline; gap: 8px; margin-right: 6px; }
+  .brand-mark { width: 9px; height: 9px; border-radius: 50%; background: var(--sig-green); box-shadow: 0 0 10px var(--sig-green); flex: none; }
+  .brand h1 { font-size: 16px; font-weight: 700; margin: 0; letter-spacing: 0.2px; }
+  .brand span { font-size: 12px; color: var(--text-dim); }
+
+  .stats { display: flex; gap: 16px; margin-right: auto; font-size: 11.5px; color: var(--text-muted); }
+  .stats b { color: var(--text); font-weight: 700; }
+
+  .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .btn {
+    appearance: none; border: 1px solid var(--border); background: var(--panel-2);
+    color: var(--text); font: inherit; font-weight: 600; font-size: 12.5px;
+    padding: 8px 14px; border-radius: 8px; cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  .btn:hover { border-color: #3A4454; background: #1C222C; }
+  .btn:focus-visible { outline: 2px solid var(--amb-1); outline-offset: 2px; }
+  .btn.primary { background: var(--amb-1); border-color: var(--amb-1); color: #05070B; }
+  .btn.primary:hover { background: #6BA0FF; }
+  .btn.warn { border-color: rgba(255,77,106,0.5); color: var(--fault); }
+  .btn.warn:hover { background: rgba(255,77,106,0.1); }
+  .btn.icon { padding: 8px 10px; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn.active { border-color: var(--amb-1); color: var(--amb-1); }
+
+  .speed-control { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
+  .speed-control input[type="range"] { width: 90px; accent-color: var(--amb-1); }
+  .speed-control .val { color: var(--text); font-weight: 600; width: 32px; }
+
+  .layout {
+    flex: 1; display: grid;
+    grid-template-columns: 262px 1fr 300px;
+    grid-template-rows: 1fr 190px;
+    grid-template-areas: "fleet map detail" "log log log";
+    min-height: 0; gap: 1px; background: var(--border);
+  }
+  .panel { background: var(--bg); padding: 16px; overflow-y: auto; min-height: 0; }
+  .panel-title { font-size: 11px; font-weight: 600; color: var(--text-dim); letter-spacing: 0.3px; margin: 0 0 12px; }
+
+  .fleet { grid-area: fleet; }
+  .amb-card { background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 12px; margin-bottom: 10px; }
+  .amb-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .amb-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .amb-id { font-weight: 600; font-size: 13px; }
+  .amb-status { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+  .amb-status b { color: var(--text); font-weight: 600; }
+  .amb-route-tag { display:inline-block; margin-top:5px; font-size:10.5px; padding:2px 7px; border-radius:20px; background:rgba(196,107,255,0.14); color:var(--amb-2); }
+  .empty-fleet { color: var(--text-dim); font-size: 12.5px; line-height: 1.6; }
+
+  .legend { margin-top: 20px; }
+  .legend-step { display: flex; align-items: flex-start; gap: 9px; font-size: 12px; color: var(--text-muted); margin-bottom: 10px; line-height: 1.45; }
+  .legend-num { flex: none; width: 16px; height: 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--bg); margin-top: 1px; }
+  .caption { font-size: 11.5px; color: var(--text-dim); margin-top: 16px; line-height: 1.6; padding-top: 14px; border-top: 1px solid var(--border-soft); }
+
+  .map-wrap { grid-area: map; position: relative; padding: 0; overflow: hidden; }
+  .map-wrap svg { width: 100%; height: 100%; display: block; }
+  .jn-label { font-size: 11px; fill: var(--text-muted); font-weight: 500; }
+  .jn-eta { font-size: 10.5px; font-weight: 600; }
+  .road { stroke: #262E3A; stroke-width: 7; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .road-deco { stroke: #171C24; stroke-width: 5; fill: none; stroke-linecap: round; }
+  .road-alt { stroke: rgba(76,141,255,0.32); stroke-width: 4; fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 2 8; }
+  .bldg { fill: #10141B; }
+  .alt-label { font-size: 10px; fill: var(--text-dim); font-weight: 500; }
+  .pulse-ring { pointer-events: none; }
+  .pulse-anim { animation: pulse-out .55s ease-out; }
+  @keyframes pulse-out { from { r: 15; opacity: .65; } to { r: 32; opacity: 0; } }
+
+  .gps-ghost { opacity: 0; }
+
+  .anomaly-banner {
+    position: absolute; top: 0; left: 0; right: 0; padding: 9px 16px; font-size: 12.5px; font-weight: 600;
+    background: rgba(255,77,106,0.16); border-bottom: 1px solid rgba(255,77,106,0.4); color: var(--fault);
+    transform: translateY(-100%); transition: transform .25s ease; z-index: 6;
+  }
+  .anomaly-banner.show { transform: translateY(0); }
+
+  .toast-layer { position: absolute; top: 14px; right: 14px; display: flex; flex-direction: column; gap: 8px; z-index: 5; pointer-events: none; }
+  .toast { pointer-events: auto; width: 232px; background: var(--panel); border: 1px solid #2E3D57; border-radius: var(--radius); padding: 12px 13px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); animation: toast-in .18s ease-out; }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+  .toast-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--amb-1); margin-bottom: 5px; }
+  .toast-body { font-size: 12px; color: var(--text-muted); line-height: 1.45; margin-bottom: 10px; }
+  .toast-actions { display: flex; gap: 8px; }
+  .toast-btn { flex: 1; font: inherit; font-size: 11.5px; font-weight: 600; padding: 7px 0; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); cursor: pointer; }
+  .toast-btn.accept { background: var(--amb-1); border-color: var(--amb-1); color: #05070B; }
+  .toast-btn:hover { filter: brightness(1.12); }
+
+  .detail { grid-area: detail; }
+  .jn-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; gap: 8px; }
+  .jn-row:last-child { border-bottom: none; }
+  .jn-row-left { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .jn-row-name { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip { font-size: 10.5px; font-weight: 600; padding: 3px 8px; border-radius: 20px; letter-spacing: 0.2px; white-space: nowrap; }
+  .override-btn { font-size: 10px; border: 1px solid var(--border); background: transparent; color: var(--text-dim); padding: 3px 7px; border-radius: 6px; cursor: pointer; flex: none; }
+  .override-btn:hover { color: var(--fault); border-color: rgba(255,77,106,0.5); }
+  .override-btn:disabled { opacity: .25; cursor: default; }
+
+  .log { grid-area: log; padding: 12px 16px; }
+  .log-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .log-list { font-size: 12px; line-height: 1.9; }
+  .log-empty { color: var(--text-dim); font-size: 12.5px; }
+  .log-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log-time { color: var(--text-dim); margin-right: 8px; }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #232A35; border-radius: 8px; }
+
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; grid-template-rows: auto 320px auto 180px; grid-template-areas: "fleet" "map" "detail" "log"; }
+    .speed-control { order: 3; width: 100%; }
+    .toast { width: 200px; }
+    .stats { width: 100%; order: -1; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; } }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="brand-mark"></span><h1>GreenCorridor</h1><span>signal priority sim</span></div>
+  <div class="stats mono" id="statsBar">Triggers: 0 &nbsp;·&nbsp; Trips: 0 &nbsp;·&nbsp; Faults caught: 0</div>
+  <div class="controls">
+    <button class="btn icon" id="soundBtn" title="Toggle sound">🔇</button>
+    <button class="btn" id="gpsBtn" title="Toggle raw-GPS jitter overlay">GPS noise: off</button>
+    <button class="btn warn" id="faultBtn">⚠ Inject fault</button>
+    <button class="btn" id="replayBtn" disabled>↻ Replay log</button>
+    <div class="speed-control">
+      <span>Speed</span>
+      <input type="range" id="speedSlider" min="0.5" max="3" step="0.1" value="1">
+      <span class="val mono" id="speedVal">1.0×</span>
+    </div>
+    <button class="btn" id="addAmbBtn">+ 2nd ambulance</button>
+    <button class="btn" id="resetBtn">Reset</button>
+    <button class="btn primary" id="startBtn">Start ambulance run</button>
+  </div>
+</div>
+
+<div class="layout">
+
+  <div class="panel fleet">
+    <p class="panel-title">FLEET</p>
+    <div id="fleetList"><p class="empty-fleet">No ambulance on the road. Start a run to send one out from Hospital Gate — it'll pick up a patient at City General and come straight back.</p></div>
+
+    <div class="legend">
+      <p class="panel-title">HOW A TRIGGER WORKS</p>
+      <div class="legend-step"><span class="legend-num" style="background:var(--sig-amber)">1</span>Requested — the ambulance is close enough that the junction begins preparing.</div>
+      <div class="legend-step"><span class="legend-num" style="background:var(--sig-red)">2</span>All-red clearance — every direction holds red so the intersection empties. Watch the cross-traffic dots queue up during this step.</div>
+      <div class="legend-step"><span class="legend-num" style="background:var(--sig-green)">3</span>Ambulance green — the ambulance's direction gets the green.</div>
+      <div class="legend-step"><span class="legend-num" style="background:var(--sig-idle);color:var(--text)">4</span>Reverting — once clear, the junction returns to its normal cycle, and cross-traffic moves again.</div>
+    </div>
+    <div class="caption">Dashed line = alternate Ring Road route (you choose whether to switch, never automatic). "Inject fault" simulates a sensor error — watch the watchdog catch and correct it.</div>
+  </div>
+
+  <div class="panel map-wrap">
+    <div class="anomaly-banner" id="anomalyBanner"></div>
+    <svg id="mapSvg" viewBox="0 0 900 500" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="toast-layer" id="toastLayer"></div>
+  </div>
+
+  <div class="panel detail">
+    <p class="panel-title">CORRIDOR STATUS</p>
+    <div id="jnList"></div>
+  </div>
+
+  <div class="panel log">
+    <div class="log-title"><p class="panel-title" style="margin:0;">TRIGGER LOG</p></div>
+    <div class="log-list mono" id="logList"><p class="log-empty" style="font-family: 'Inter', sans-serif;">No trigger events yet — start a run to see the corridor respond.</p></div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- Geometry ----------
+  var junctions = [
+    { id: 0, name: "Hospital Gate",   x: 70,  y: 420 },
+    { id: 1, name: "MG Road Jn",      x: 230, y: 330 },
+    { id: 2, name: "Anna Salai Jn",   x: 400, y: 360 },
+    { id: 3, name: "Mount Road Jn",   x: 580, y: 230 },
+    { id: 4, name: "City General",    x: 790, y: 150 }
+  ];
+  var ALT_POINT = { x: 410, y: 260 };
+  function dist(a, b) { return Math.hypot(b.x - a.x, b.y - a.y); }
+
+  function buildRoute(name) {
+    var points = [junctions[0], junctions[1], name === "main" ? junctions[2] : ALT_POINT, junctions[3], junctions[4]];
+    var cumPx = [0];
+    for (var i = 1; i < points.length; i++) cumPx.push(cumPx[i - 1] + dist(points[i - 1], points[i]));
+    return { points: points, cumPx: cumPx };
+  }
+  var ROUTES = { main: buildRoute("main"), alt: buildRoute("alt") };
+  function isJunctionSlot(routeName, idx) { return !(idx === 2 && routeName === "alt"); }
+
+  function segmentAndFrac(pu, direction) {
+    var k = Math.round(pu);
+    if (Math.abs(pu - k) < 1e-9) {
+      if (k <= 0) return { segIdx: 0, x: 0 };
+      if (k >= 4) return { segIdx: 3, x: 1 };
+      if (direction === -1) return { segIdx: k - 1, x: 1 };
+      return { segIdx: k, x: 0 };
+    }
+    var segIdx = Math.max(0, Math.min(Math.floor(pu), 3));
+    return { segIdx: segIdx, x: Math.max(0, Math.min(1, pu - segIdx)) };
+  }
+  function pxAt(routeName, pu, direction) {
+    var r = ROUTES[routeName], s = segmentAndFrac(pu, direction);
+    return r.cumPx[s.segIdx] + s.x * (r.cumPx[s.segIdx + 1] - r.cumPx[s.segIdx]);
+  }
+  function pointAt(routeName, pu, direction) {
+    var r = ROUTES[routeName], s = segmentAndFrac(pu, direction);
+    var p1 = r.points[s.segIdx], p2 = r.points[s.segIdx + 1];
+    return { x: p1.x + (p2.x - p1.x) * s.x, y: p1.y + (p2.y - p1.y) * s.x };
+  }
+  function targetJunctionIndex(a) {
+    var idx;
+    if (a.direction === 1) {
+      idx = Math.floor(a.pu) + 1;
+      while (idx <= 4 && !isJunctionSlot(a.routeName, idx)) idx++;
+      return idx > 4 ? -1 : idx;
+    } else {
+      idx = Math.ceil(a.pu) - 1;
+      while (idx >= 0 && !isJunctionSlot(a.routeName, idx)) idx--;
+      return idx < 0 ? -1 : idx;
+    }
+  }
+  function nextInSequence(routeName, fromIdx, direction) {
+    var idx = fromIdx + direction;
+    while (idx >= 0 && idx <= 4 && !isJunctionSlot(routeName, idx)) idx += direction;
+    return (idx < 0 || idx > 4) ? -1 : idx;
+  }
+
+  var MID_MAIN = ROUTES.main.cumPx[3] - ROUTES.main.cumPx[1];
+  var MID_ALT = ROUTES.alt.cumPx[3] - ROUTES.alt.cumPx[1];
+  var SAVE_PX = Math.max(0, MID_MAIN - MID_ALT);
+
+  // ---------- SVG build ----------
+  var svg = document.getElementById("mapSvg");
+  var NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); return e; }
+
+  var bldgs = [[30,40,60,50],[120,30,90,40],[260,50,70,60],[400,30,110,45],[550,40,80,55],[700,30,120,50],
+    [30,460,70,30],[150,455,90,35],[320,455,80,35],[470,460,100,30],[640,455,90,35],[790,455,80,35],
+    [40,150,50,80],[820,200,50,90],[10,250,45,100],[850,300,40,90]];
+  bldgs.forEach(function (b) { svg.appendChild(el("rect", { x: b[0], y: b[1], width: b[2], height: b[3], rx: 4, class: "bldg", opacity: 0.55 })); });
+
+  [[230,20,230,480],[580,20,580,480],[40,240,860,240]].forEach(function (c) {
+    svg.appendChild(el("line", { x1: c[0], y1: c[1], x2: c[2], y2: c[3], class: "road-deco" }));
+  });
+
+  var altD = "M" + junctions[1].x + "," + junctions[1].y + " L" + ALT_POINT.x + "," + ALT_POINT.y + " L" + junctions[3].x + "," + junctions[3].y;
+  svg.appendChild(el("path", { d: altD, class: "road-alt" }));
+  svg.appendChild(el("rect", { x: ALT_POINT.x - 5, y: ALT_POINT.y - 5, width: 10, height: 10, rx: 2, fill: "var(--sig-idle)", opacity: 0.8 }));
+  svg.appendChild(el("text", { x: ALT_POINT.x, y: ALT_POINT.y - 12, class: "alt-label", "text-anchor": "middle" })).textContent = "Ring Road";
+
+  var roadD = "M" + junctions.map(function (j) { return j.x + "," + j.y; }).join(" L");
+  svg.appendChild(el("path", { d: roadD, class: "road" }));
+
+  junctions.forEach(function (j) {
+    var g = el("g", { id: "jn-g-" + j.id });
+    g.appendChild(el("circle", { id: "jn-primering-" + j.id, cx: j.x, cy: j.y, r: 20, fill: "none", stroke: "var(--sig-amber)", "stroke-width": 2, "stroke-dasharray": "3 4", opacity: 0 }));
+    g.appendChild(el("circle", { id: "jn-pulse-" + j.id, class: "pulse-ring", cx: j.x, cy: j.y, r: 15, fill: "none", stroke: "var(--sig-green)", "stroke-width": 3, opacity: 0 }));
+    g.appendChild(el("circle", { id: "jn-ring-" + j.id, cx: j.x, cy: j.y, r: 15, fill: "none", stroke: "var(--sig-idle)", "stroke-width": 4 }));
+    g.appendChild(el("circle", { cx: j.x, cy: j.y, r: 6, fill: "var(--panel)" }));
+    g.appendChild(el("circle", { id: "jn-dot-" + j.id, cx: j.x, cy: j.y, r: 3.4, fill: "var(--sig-idle)" }));
+    var labelY = j.y > 250 ? j.y + 32 : j.y - 24;
+    g.appendChild(el("text", { x: j.x, y: labelY, class: "jn-label", "text-anchor": "middle" })).textContent = j.name;
+    var eta = el("text", { id: "jn-eta-" + j.id, x: j.x, y: labelY + (j.y > 250 ? 15 : -13), class: "jn-eta mono", "text-anchor": "middle", fill: "var(--amb-1)" });
+    g.appendChild(eta);
+    svg.appendChild(g);
+  });
+
+  var ambColors = ["var(--amb-1)", "var(--amb-2)"];
+  function createAmbMarker(idx) {
+    var g = el("g", { id: "amb-g-" + idx, opacity: 0 });
+    g.appendChild(el("circle", { id: "gps-ghost-" + idx, class: "gps-ghost", r: 4, fill: ambColors[idx], opacity: 0.35 }));
+    g.appendChild(el("circle", { id: "amb-halo-" + idx, r: 12, fill: ambColors[idx], opacity: 0.25 }));
+    g.appendChild(el("circle", { id: "amb-dot-" + idx, r: 6, fill: ambColors[idx], stroke: "#05070B", "stroke-width": 1.5 }));
+    svg.appendChild(g);
+    return g;
+  }
+  var ambMarkers = [createAmbMarker(0), createAmbMarker(1)];
+
+  // ambient cross-traffic cars
+  var crossCars = [
+    { jIdx: 1, x: 230, y: 130, dir: 1, speed: 55, stopped: false },
+    { jIdx: 1, x: 230, y: 410, dir: -1, speed: 48, stopped: false },
+    { jIdx: 3, x: 580, y: 90,  dir: 1, speed: 50, stopped: false },
+    { jIdx: 3, x: 580, y: 400, dir: -1, speed: 60, stopped: false }
+  ];
+  crossCars.forEach(function (c, i) {
+    c.el = el("rect", { id: "car-" + i, x: c.x - 4, y: c.y - 7, width: 8, height: 14, rx: 2, fill: "var(--text-dim)" });
+    svg.appendChild(c.el);
+  });
+
+  // ---------- Junction state machine ----------
+  var STATE_COLORS = { NORMAL: "var(--sig-idle)", PRE_EMPTION_REQUESTED: "var(--sig-amber)", ALL_RED_CLEARANCE: "var(--sig-red)", AMBULANCE_GREEN: "var(--sig-green)", REVERTING: "var(--sig-amber)" };
+  var STATE_LABELS = { NORMAL: "Normal", PRE_EMPTION_REQUESTED: "Requested", ALL_RED_CLEARANCE: "All-red clearance", AMBULANCE_GREEN: "Ambulance green", REVERTING: "Reverting" };
+  var jnState = junctions.map(function () { return { state: "NORMAL", servingId: null, queue: [], timer: null, primed: false, primeTimer: null }; });
+
+  var ambulances = [];
+  var running = false, speedMult = 1, lastTs = null, rafId = null;
+  var BASE_SPEED = 46;
+  var gpsNoiseOn = false, soundOn = false, audioCtx = null;
+  var stats = { triggers: 0, trips: 0, faults: 0 };
+  var fullLogRecords = [];
+
+  var logList = document.getElementById("logList");
+  var logStarted = false;
+  function log(msg, color) {
+    fullLogRecords.push({ msg: msg, color: color });
+    document.getElementById("replayBtn").disabled = false;
+    if (!logStarted) { logList.innerHTML = ""; logStarted = true; }
+    appendLogLine(msg, color);
+  }
+  function appendLogLine(msg, color) {
+    var t = new Date();
+    var ts = [t.getHours(), t.getMinutes(), t.getSeconds()].map(function (n) { return String(n).padStart(2, "0"); }).join(":");
+    var line = document.createElement("div");
+    line.className = "log-line";
+    line.innerHTML = '<span class="log-time">' + ts + '</span><span style="color:' + (color || "var(--text-muted)") + '">' + msg + "</span>";
+    logList.insertBefore(line, logList.firstChild);
+    while (logList.children.length > 80) logList.removeChild(logList.lastChild);
+  }
+  function updateStatsBar() {
+    document.getElementById("statsBar").innerHTML = "Triggers: <b>" + stats.triggers + "</b> &nbsp;·&nbsp; Trips: <b>" + stats.trips + "</b> &nbsp;·&nbsp; Faults caught: <b style=\"color:var(--fault)\">" + stats.faults + "</b>";
+  }
+
+  function playBeep() {
+    if (!soundOn) return;
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = "sine"; o.frequency.value = 880;
+      g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.12, audioCtx.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.22);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(); o.stop(audioCtx.currentTime + 0.24);
+    } catch (e) {}
+  }
+
+  function pulseJunction(jIdx) {
+    var p = document.getElementById("jn-pulse-" + jIdx);
+    p.classList.remove("pulse-anim"); void p.offsetWidth;
+    p.setAttribute("opacity", "1"); p.classList.add("pulse-anim");
+    setTimeout(function () { p.setAttribute("opacity", "0"); }, 560);
+  }
+
+  function setPrimed(jIdx, on) {
+    jnState[jIdx].primed = on;
+    document.getElementById("jn-primering-" + jIdx).setAttribute("opacity", on ? "0.8" : "0");
+    if (jnState[jIdx].primeTimer) { clearTimeout(jnState[jIdx].primeTimer); jnState[jIdx].primeTimer = null; }
+    if (on) jnState[jIdx].primeTimer = setTimeout(function () { setPrimed(jIdx, false); }, 12000);
+  }
+
+  function setJnState(jIdx, newState) {
+    jnState[jIdx].state = newState;
+    document.getElementById("jn-ring-" + jIdx).setAttribute("stroke", STATE_COLORS[newState]);
+    document.getElementById("jn-dot-" + jIdx).setAttribute("fill", STATE_COLORS[newState]);
+    if (newState === "AMBULANCE_GREEN") { pulseJunction(jIdx); playBeep(); }
+    renderDetail();
+  }
+  function clearTimer(jIdx) { if (jnState[jIdx].timer) { clearTimeout(jnState[jIdx].timer); jnState[jIdx].timer = null; } }
+
+  function requestJunction(jIdx, amb) {
+    var js = jnState[jIdx];
+    if (js.state !== "NORMAL") {
+      if (js.servingId !== amb.id && js.queue.indexOf(amb.id) === -1) {
+        js.queue.push(amb.id);
+        log("Amb " + amb.id + " queued at " + junctions[jIdx].name + " — junction busy", "var(--amb-1)");
+      }
+      return;
+    }
+    js.servingId = amb.id;
+    var wasPrimed = js.primed;
+    if (wasPrimed) setPrimed(jIdx, false);
+    setJnState(jIdx, "PRE_EMPTION_REQUESTED");
+    stats.triggers++; updateStatsBar();
+    log("Amb " + amb.id + " → " + junctions[jIdx].name + ": pre-emption requested" + (wasPrimed ? " (primed early via green wave)" : ""), "var(--sig-amber)");
+
+    clearTimer(jIdx);
+    js.timer = setTimeout(function () {
+      setJnState(jIdx, "ALL_RED_CLEARANCE");
+      log(junctions[jIdx].name + ": all-red clearance — intersection emptying", "var(--sig-red)");
+      clearTimer(jIdx);
+      js.timer = setTimeout(function () {
+        setJnState(jIdx, "AMBULANCE_GREEN");
+        log(junctions[jIdx].name + ": ambulance green for Amb " + amb.id, "var(--sig-green)");
+        // green wave: pre-prime the next junction on this ambulance's path
+        var nxt = nextInSequence(amb.routeName, jIdx, amb.direction);
+        if (nxt !== -1 && jnState[nxt].state === "NORMAL" && !jnState[nxt].primed) {
+          setPrimed(nxt, true);
+          log(junctions[nxt].name + ": primed early via green wave", "var(--sig-amber)");
+        }
+        clearTimer(jIdx);
+        js.timer = setTimeout(function () { revertJunction(jIdx, "timeout"); }, 8000);
+      }, wasPrimed ? 700 : 2600);
+    }, wasPrimed ? 250 : 1100);
+  }
+
+  function revertJunction(jIdx, reason) {
+    var js = jnState[jIdx];
+    if (js.state === "NORMAL") return;
+    clearTimer(jIdx);
+    setJnState(jIdx, "REVERTING");
+    log(junctions[jIdx].name + ": ambulance clear — reverting" + (reason === "timeout" ? " (failsafe timeout)" : reason === "override" ? " (operator override)" : ""), "var(--text-muted)");
+    js.timer = setTimeout(function () {
+      setJnState(jIdx, "NORMAL");
+      js.servingId = null;
+      if (js.queue.length > 0) {
+        var nextId = js.queue.shift();
+        var nextAmb = ambulances.find(function (a) { return a.id === nextId; });
+        if (nextAmb && nextAmb.active) requestJunction(jIdx, nextAmb);
+      }
+    }, 1400);
+  }
+
+  // ---------- Fault injection + watchdog ----------
+  function showAnomalyBanner(msg) {
+    var b = document.getElementById("anomalyBanner");
+    b.textContent = "⚠ " + msg;
+    b.classList.add("show");
+    clearTimeout(b._t);
+    b._t = setTimeout(function () { b.classList.remove("show"); }, 3600);
+  }
+  document.getElementById("faultBtn").addEventListener("click", function () {
+    var candidates = [];
+    jnState.forEach(function (js, idx) { if (js.state === "NORMAL") candidates.push(idx); });
+    if (candidates.length === 0) { log("Fault injection skipped — every junction already active", "var(--text-dim)"); return; }
+    var jIdx = candidates[Math.floor(Math.random() * candidates.length)];
+    var js = jnState[jIdx];
+    js.servingId = null;
+    setJnState(jIdx, "AMBULANCE_GREEN");
+    log("⚠ SIMULATED SENSOR FAULT: " + junctions[jIdx].name + " forced green with no verified ambulance", "var(--fault)");
+  });
+
+  function watchdog() {
+    junctions.forEach(function (j, idx) {
+      var js = jnState[idx];
+      if (js.state !== "AMBULANCE_GREEN" && js.state !== "ALL_RED_CLEARANCE") return;
+      var validAmb = js.servingId != null && ambulances.some(function (a) {
+        if (a.id !== js.servingId || !a.active) return false;
+        var curPx = pxAt(a.routeName, a.pu, a.direction);
+        var jPx = ROUTES[a.routeName].cumPx[idx];
+        return Math.abs(jPx - curPx) <= 260 && isJunctionSlot(a.routeName, idx);
+      });
+      if (!validAmb) {
+        clearTimer(idx);
+        setJnState(idx, "NORMAL");
+        stats.faults++; updateStatsBar();
+        log("✓ Watchdog auto-corrected " + j.name + " — no authorized ambulance nearby, reverted to normal cycle", "var(--fault)");
+        showAnomalyBanner("Anomaly at " + j.name + " — auto-corrected, reverted to normal cycle.");
+      }
+    });
+  }
+
+  // ---------- Reroute toasts ----------
+  var toastLayer = document.getElementById("toastLayer");
+  function showRerouteToast(a) {
+    var savedSec = (SAVE_PX / (a.speedPx * speedMult)).toFixed(1);
+    var card = document.createElement("div");
+    card.className = "toast";
+    card.innerHTML = '<div class="toast-head">Amb ' + a.id + ": faster route found</div>" +
+      '<div class="toast-body">Ring Road bypass skips Anna Salai Jn — about ' + savedSec + "s quicker right now.</div>" +
+      '<div class="toast-actions"><button class="toast-btn" data-act="keep">Keep current</button><button class="toast-btn accept" data-act="switch">Switch route</button></div>';
+    toastLayer.appendChild(card);
+    a.rerouteState.el = card;
+    card.addEventListener("click", function (e) {
+      var act = e.target.getAttribute("data-act");
+      if (!act) return;
+      if (act === "switch") { a.routeName = "alt"; log("Amb " + a.id + " switched to Ring Road bypass", "var(--amb-1)"); }
+      else log("Amb " + a.id + " kept the current route", "var(--text-muted)");
+      a.rerouteState.resolved = true;
+      dismissToast(a);
+    });
+  }
+  function dismissToast(a) { if (a.rerouteState.el && a.rerouteState.el.parentNode) a.rerouteState.el.parentNode.removeChild(a.rerouteState.el); a.rerouteState.el = null; }
+
+  // ---------- Fleet ----------
+  var fleetList = document.getElementById("fleetList");
+  function renderFleet() {
+    if (ambulances.length === 0) {
+      fleetList.innerHTML = '<p class="empty-fleet">No ambulance on the road. Start a run to send one out from Hospital Gate — it\'ll pick up a patient at City General and come straight back.</p>';
+      return;
+    }
+    fleetList.innerHTML = "";
+    ambulances.forEach(function (a) {
+      var card = document.createElement("div");
+      card.className = "amb-card";
+      var status;
+      if (!a.active) status = "Back at Hospital Gate · run complete";
+      else if (a.paused) status = a.direction === 1 ? "Loading patient at City General…" : "Preparing to depart…";
+      else {
+        var targetIdx = targetJunctionIndex(a);
+        if (targetIdx === -1) status = "Arriving at " + (a.direction === 1 ? "City General" : "Hospital Gate");
+        else {
+          var curPx = pxAt(a.routeName, a.pu, a.direction);
+          var etaSec = Math.max(0, Math.abs(ROUTES[a.routeName].cumPx[targetIdx] - curPx) / (a.speedPx * speedMult));
+          status = (a.direction === 1 ? "En route to " : "Returning via ") + junctions[targetIdx].name + " · ETA <b>" + etaSec.toFixed(1) + "s</b>";
+        }
+      }
+      card.innerHTML = '<div class="amb-card-head"><span class="amb-dot" style="background:' + ambColors[a.idx] + '"></span><span class="amb-id">Ambulance ' + a.id + "</span></div>" +
+        '<div class="amb-status">' + status + "</div>" +
+        (a.routeName === "alt" && a.active ? '<span class="amb-route-tag">via Ring Road</span>' : "");
+      fleetList.appendChild(card);
+    });
+  }
+
+  // ---------- Detail panel ----------
+  var jnList = document.getElementById("jnList");
+  function renderDetail() {
+    jnList.innerHTML = "";
+    junctions.forEach(function (j, idx) {
+      var js = jnState[idx];
+      var row = document.createElement("div");
+      row.className = "jn-row";
+      var chipBg = STATE_COLORS[js.state];
+      row.innerHTML =
+        '<div class="jn-row-left"><span class="jn-row-name">' + j.name + (js.primed ? ' <span style="color:var(--sig-amber);font-size:10px;">· primed</span>' : "") + "</span></div>" +
+        '<span class="chip" style="background:color-mix(in srgb, ' + chipBg + ' 22%, transparent); color:' + chipBg + '">' + STATE_LABELS[js.state] + "</span>" +
+        '<button class="override-btn" data-jn="' + idx + '" ' + (js.state === "NORMAL" ? "disabled" : "") + ">Override</button>";
+      jnList.appendChild(row);
+    });
+    jnList.querySelectorAll(".override-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var idx = parseInt(btn.getAttribute("data-jn"), 10);
+        revertJunction(idx, "override");
+      });
+    });
+  }
+
+  // ---------- Leg transitions ----------
+  function resetLegState(a) { a.routeName = "main"; a.rerouteState = { offered: false, resolved: false, el: null }; }
+  function outboundComplete(a) {
+    a.pu = 4; a.paused = true;
+    log("Amb " + a.id + " arrived at City General — loading patient", "var(--sig-green)");
+    dismissToast(a);
+    a.pauseTimer = setTimeout(function () {
+      if (!a.active) return;
+      a.direction = -1; a.paused = false; resetLegState(a);
+      log("Amb " + a.id + " departs City General, heading back to Hospital Gate", "var(--text-muted)");
+    }, 1500);
+  }
+  function inboundComplete(a) {
+    a.pu = 0; a.active = false;
+    dismissToast(a);
+    stats.trips++; updateStatsBar();
+    log("Amb " + a.id + " back at Hospital Gate — run complete", "var(--sig-green)");
+  }
+
+  // ---------- Cross traffic ----------
+  function tickCrossTraffic(dt) {
+    crossCars.forEach(function (c) {
+      var js = jnState[c.jIdx];
+      var jY = junctions[c.jIdx].y;
+      var holding = js.state === "ALL_RED_CLEARANCE" || js.state === "AMBULANCE_GREEN";
+      var approaching = (c.dir === 1 && c.y < jY && c.y > jY - 40) || (c.dir === -1 && c.y > jY && c.y < jY + 40);
+      if (holding && approaching) {
+        c.stopped = true;
+        c.y = c.dir === 1 ? jY - 24 : jY + 24;
+      } else {
+        c.stopped = false;
+        c.y += c.dir * c.speed * speedMult * dt;
+        if (c.y > 465) { c.y = 465; c.dir = -1; }
+        if (c.y < 35) { c.y = 35; c.dir = 1; }
+      }
+      c.el.setAttribute("y", c.y - 7);
+      c.el.setAttribute("fill", c.stopped ? "var(--sig-red)" : "var(--text-dim)");
+    });
+  }
+
+  // ---------- Simulation loop ----------
+  function tick(ts) {
+    if (lastTs === null) lastTs = ts;
+    var dt = Math.min((ts - lastTs) / 1000, 0.1);
+    lastTs = ts;
+
+    tickCrossTraffic(dt);
+
+    ambulances.forEach(function (a) {
+      if (!a.active || a.paused) return;
+      var s = segmentAndFrac(a.pu, a.direction);
+      var segLen = ROUTES[a.routeName].cumPx[s.segIdx + 1] - ROUTES[a.routeName].cumPx[s.segIdx] || 1;
+      var deltaUnits = (a.speedPx * speedMult * dt) / segLen;
+      a.pu += a.direction * deltaUnits;
+      if (a.direction === 1) a.pu = Math.min(a.pu, s.segIdx + 1); else a.pu = Math.max(a.pu, s.segIdx);
+
+      if (!a.rerouteState.offered && a.routeName === "main") {
+        if (a.direction === 1 && a.pu > 0.3 && a.pu < 0.9) { showRerouteToast(a); a.rerouteState.offered = true; }
+        else if (a.direction === -1 && a.pu < 3.7 && a.pu > 3.05) { showRerouteToast(a); a.rerouteState.offered = true; }
+      }
+      if (a.rerouteState.offered && !a.rerouteState.resolved) {
+        if ((a.direction === 1 && a.pu >= 0.97) || (a.direction === -1 && a.pu <= 3.03)) { a.rerouteState.resolved = true; dismissToast(a); }
+      }
+
+      var targetIdx = targetJunctionIndex(a);
+      if (targetIdx !== -1) {
+        var curPx = pxAt(a.routeName, a.pu, a.direction);
+        var distToJn = Math.abs(ROUTES[a.routeName].cumPx[targetIdx] - curPx);
+        var dynThreshold = 55 + a.speedPx * speedMult * 1.8;
+        if (distToJn <= dynThreshold) requestJunction(targetIdx, a);
+      }
+
+      junctions.forEach(function (j, idx) {
+        var js = jnState[idx];
+        if (js.servingId === a.id && js.state === "AMBULANCE_GREEN") {
+          var curPx2 = pxAt(a.routeName, a.pu, a.direction);
+          var jPx = ROUTES[a.routeName].cumPx[idx];
+          var passed = a.direction === 1 ? curPx2 >= jPx - 1 : curPx2 <= jPx + 1;
+          if (passed) revertJunction(idx, "passed");
+        }
+      });
+
+      if (a.direction === 1 && a.pu >= 4 - 1e-6) outboundComplete(a);
+      else if (a.direction === -1 && a.pu <= 0 + 1e-6) inboundComplete(a);
+
+      var p = pointAt(a.routeName, a.pu, a.direction);
+      var g = ambMarkers[a.idx];
+      g.setAttribute("opacity", a.active ? "1" : "0");
+      g.querySelector("#amb-dot-" + a.idx).setAttribute("cx", p.x);
+      g.querySelector("#amb-dot-" + a.idx).setAttribute("cy", p.y);
+      g.querySelector("#amb-halo-" + a.idx).setAttribute("cx", p.x);
+      g.querySelector("#amb-halo-" + a.idx).setAttribute("cy", p.y);
+      var ghost = g.querySelector("#gps-ghost-" + a.idx);
+      if (gpsNoiseOn && a.active) {
+        var jt = 9;
+        ghost.setAttribute("cx", p.x + Math.sin(ts / 260 + a.id * 7) * jt);
+        ghost.setAttribute("cy", p.y + Math.cos(ts / 300 + a.id * 5) * jt);
+        ghost.setAttribute("opacity", "0.4");
+      } else ghost.setAttribute("opacity", "0");
+    });
+
+    junctions.forEach(function (j, idx) {
+      var etaEl = document.getElementById("jn-eta-" + idx);
+      var js = jnState[idx];
+      etaEl.textContent = (js.state !== "NORMAL" && js.servingId != null) ? STATE_LABELS[js.state] : "";
+    });
+
+    watchdog();
+    renderFleet();
+
+    if (ambulances.some(function (a) { return a.active; })) {
+      rafId = requestAnimationFrame(tick);
+    } else {
+      running = false; lastTs = null;
+      document.getElementById("startBtn").textContent = "Start ambulance run";
+      document.getElementById("startBtn").disabled = false;
+    }
+  }
+
+  // ---------- Controls ----------
+  var nextAmbId = 1;
+  function spawnAmbulance(delayMs) {
+    if (ambulances.length >= 2) return;
+    var idx = ambulances.length;
+    var a = { idx: idx, id: nextAmbId++, pu: 0, direction: 1, active: true, paused: !!delayMs,
+      speedPx: BASE_SPEED * (0.85 + Math.random() * 0.3), routeName: "main",
+      rerouteState: { offered: false, resolved: false, el: null }, pauseTimer: null };
+    ambulances.push(a);
+    log("Amb " + a.id + " dispatched from Hospital Gate", "var(--text-muted)");
+    if (delayMs) a.pauseTimer = setTimeout(function () { if (a.active) a.paused = false; }, delayMs);
+    if (!running) { running = true; lastTs = null; rafId = requestAnimationFrame(tick); }
+    renderFleet();
+  }
+
+  document.getElementById("startBtn").addEventListener("click", function () {
+    if (running) return;
+    this.textContent = "Run in progress…"; this.disabled = true;
+    spawnAmbulance(0);
+  });
+  document.getElementById("addAmbBtn").addEventListener("click", function () { if (ambulances.length < 2) spawnAmbulance(1800); });
+
+  document.getElementById("resetBtn").addEventListener("click", function () {
+    if (rafId) cancelAnimationFrame(rafId);
+    running = false; lastTs = null;
+    ambulances.forEach(function (a) { if (a.pauseTimer) clearTimeout(a.pauseTimer); dismissToast(a); });
+    ambulances = []; nextAmbId = 1;
+    jnState.forEach(function (js, idx) { clearTimer(idx); setPrimed(idx, false); js.state = "NORMAL"; js.servingId = null; js.queue = []; setJnState(idx, "NORMAL"); });
+    ambMarkers.forEach(function (g) { g.setAttribute("opacity", "0"); });
+    logStarted = false; fullLogRecords = [];
+    document.getElementById("replayBtn").disabled = true;
+    logList.innerHTML = '<p class="log-empty" style="font-family:\'Inter\',sans-serif;">No trigger events yet — start a run to see the corridor respond.</p>';
+    document.getElementById("startBtn").textContent = "Start ambulance run";
+    document.getElementById("startBtn").disabled = false;
+    stats = { triggers: 0, trips: 0, faults: 0 }; updateStatsBar();
+    renderFleet(); renderDetail();
+  });
+
+  document.getElementById("gpsBtn").addEventListener("click", function () {
+    gpsNoiseOn = !gpsNoiseOn;
+    this.textContent = "GPS noise: " + (gpsNoiseOn ? "on" : "off");
+    this.classList.toggle("active", gpsNoiseOn);
+  });
+  document.getElementById("soundBtn").addEventListener("click", function () {
+    soundOn = !soundOn;
+    this.textContent = soundOn ? "🔊" : "🔇";
+    this.classList.toggle("active", soundOn);
+    if (soundOn) playBeep();
+  });
+  document.getElementById("replayBtn").addEventListener("click", function () {
+    if (fullLogRecords.length === 0) return;
+    logList.innerHTML = "";
+    var i = fullLogRecords.length - 1;
+    var iv = setInterval(function () {
+      if (i < 0) { clearInterval(iv); return; }
+      appendLogLine("↻ " + fullLogRecords[i].msg, fullLogRecords[i].color);
+      i--;
+    }, 110);
+  });
+
+  var speedSlider = document.getElementById("speedSlider");
+  var speedVal = document.getElementById("speedVal");
+  speedSlider.addEventListener("input", function () { speedMult = parseFloat(this.value); speedVal.textContent = speedMult.toFixed(1) + "×"; });
+
+  updateStatsBar();
+  renderFleet();
+  renderDetail();
+})();
+</script>
+</body>
+</html>
