@@ -8,8 +8,7 @@ red-to-green flip. This repo is a single self-contained HTML/JS simulation
 (no build step, no dependencies) so it can be opened directly in a browser.
 
 ## Live demo
-Open `index.html` in any browser, or visit the deployed link (add yours here
-once you deploy via Netlify Drop or similar).
+Open `index.html` in any browser, or visit the deployed link https://green-corridor-93abad.netlify.app/ 
 
 ## What it simulates
 
